@@ -1,5 +1,7 @@
 ﻿using HospitalClassesLibrary;
 using System.Text;
+using System.Threading.Tasks;
+using System.IO;
 
 namespace HospitalApp
 {
@@ -8,38 +10,47 @@ namespace HospitalApp
         static async Task Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
-            Console.WriteLine($"Главный метод начал работу в потоке: {Thread.CurrentThread.ManagedThreadId}");
 
+            // ── Генерируем список пациентов ───────────────────────────────────
             var пациенты = new List<PatientInfo>();
-            var рандом = new Random();
+            var rnd = new Random();
             string[] диагнозы = { "Грипп", "Пневмония", "COVID-19", "Диабет", "Мигрень" };
 
             for (int i = 0; i < 1000; i++)
-            {
                 пациенты.Add(new PatientInfo
                 {
                     Id = i,
                     Name = $"Пациент {i}",
-                    Diagnosis = диагнозы[рандом.Next(диагнозы.Length)]
+                    Diagnosis = диагнозы[rnd.Next(диагнозы.Length)]
                 });
-            }
 
+            // ── Запись в поток и файл ─────────────────────────────────────────
             var сервис = new StreamService<PatientInfo>();
             using var поток = new MemoryStream();
-            var прогресс = new Progress<string>(сообщение => Console.WriteLine(сообщение));
+            var прогресс = new Progress<string>(m => Console.WriteLine(m));
 
-            Console.WriteLine("Запуск записи в поток и копирования в файл...");
+            Console.WriteLine("Записываю данные…");
+            await сервис.WriteToStreamAsync(поток, пациенты, прогресс);
 
-            var задачаЗаписи = сервис.WriteToStreamAsync(поток, пациенты, прогресс);
-            await Task.Delay(100);
-            var задачаКопирования = сервис.CopyFromStreamAsync(поток, "пациенты.json", прогресс);
+            поток.Position = 0;                       // «Перематываем» поток
+            Console.WriteLine("Копирую в файл…");
+            await сервис.CopyFromStreamAsync(поток, "пациенты.json", прогресс);
 
-            await Task.WhenAll(задачаЗаписи, задачаКопирования);
+            // ── Краткая сводка ───────────────────────────────────────────────
+            int total = пациенты.Count;               // 1000
 
-            Func<PatientInfo, bool> фильтр = п => п.Diagnosis == "COVID-19";
-            int количество = await сервис.GetStatisticsAsync("пациенты.json", фильтр);
+            Console.WriteLine();
+            foreach (var d in диагнозы)
+            {
+                int count = await сервис.GetStatisticsAsync(
+                                "пациенты.json",
+                                p => p.Diagnosis == d);
 
-            Console.WriteLine($"Статистика: {количество} пациентов с диагнозом 'COVID-19'");
+                Console.WriteLine($"{d,-10} {count} пациентов из {total}");
+            }
+
+            Console.WriteLine("\nНажмите Enter, чтобы выйти…");
+            Console.ReadLine();
         }
     }
 }
